@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+<head>
+<meta property="og:title" content="Fallback Title From Meta Tag">
+<meta property="og:description" content="Fallback description from meta tag.">
+</head>
+<body>
+<script>
+var ytInitialData = {"unrelated": {"nested": "should be ignored"}};
+var ytInitialPlayerResponse = {"videoDetails": {"videoId": "abc12345678", "title": "Does Drinking Cold Water Slow Digestion?", "author": "Test Channel", "shortDescription": "A test description with \"quotes\" and a } brace inside a string.", "lengthSeconds": "300"}, "captions": {"playerCaptionsTracklistRenderer": {"captionTracks": [{"baseUrl": "https://example.invalid/timedtext?lang=en", "languageCode": "en", "name": {"simpleText": "English"}}]}}};
+var somethingAfter = {"shouldNotBeParsed": true};
+</script>
+</body>
+</html>
