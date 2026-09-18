@@ -31,6 +31,7 @@ async function runAnalysisJob(videoId) {
     try {
       videoData = await fetchVideoData(videoId, { maxTranscriptChars: config.maxTranscriptChars });
     } catch (err) {
+      console.error(`[youtube] fetch failed for ${videoId}:`, err.message);
       await upsertAnalysis(videoId, {
         status: 'error',
         errorMessage: 'Could not load this video\'s page or metadata. It may be private, deleted, or region-locked.',
