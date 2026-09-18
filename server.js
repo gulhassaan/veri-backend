@@ -9,6 +9,12 @@ import videoRoutes from './routes/videoRoutes.js';
 
 const app = express();
 
+// Render (and most PaaS hosts) sit behind a reverse proxy that sets
+// X-Forwarded-For. Without this, express-rate-limit throws
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR instead of correctly identifying
+// clients by IP for rate limiting.
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(express.json({ limit: '100kb' }));
 if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));

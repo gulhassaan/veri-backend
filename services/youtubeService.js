@@ -86,6 +86,11 @@ export async function fetchVideoData(videoId, { maxTranscriptChars } = {}) {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
       'Accept-Language': 'en-US,en;q=0.9',
+      // Server-side/data-center requests sometimes get redirected to
+      // YouTube's EU cookie-consent interstitial instead of the real
+      // watch page. Pre-accepting consent via this cookie is a
+      // widely-used, low-risk workaround.
+      Cookie: 'CONSENT=YES+1',
     },
   });
 
@@ -103,6 +108,11 @@ export async function fetchVideoData(videoId, { maxTranscriptChars } = {}) {
   const lengthSeconds = videoDetails?.lengthSeconds ? Number(videoDetails.lengthSeconds) : null;
 
   if (!title) {
+    console.error(
+      `[youtube] title extraction failed for ${videoId} - HTTP ${res.status}, HTML length ${html.length}, ` +
+      `playerResponse found: ${!!playerResponse}, videoDetails found: ${!!videoDetails}. ` +
+      `First 300 chars of response: ${html.slice(0, 300).replace(/\n/g, ' ')}`
+    );
     throw new Error(`Could not read video metadata for ${videoId} - the page may be unavailable, private, or region-locked.`);
   }
 
