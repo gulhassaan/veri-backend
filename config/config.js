@@ -20,14 +20,14 @@ export const config = {
   model: process.env.ANALYSIS_MODEL || 'gemini-flash-latest',
 
   tavilyApiKey: process.env.TAVILY_API_KEY || '',
-  maxSearchQueriesPerClaim: Number(process.env.MAX_SEARCH_QUERIES_PER_CLAIM || 2),
+  maxSearchQueriesPerClaim: Number(process.env.MAX_SEARCH_QUERIES_PER_CLAIM || 1),
   maxResultsPerQuery: Number(process.env.MAX_RESULTS_PER_QUERY || 4),
 
   analysisVersion: process.env.ANALYSIS_VERSION || '1.0.0',
   scoringWeights: SCORING_WEIGHTS,
   cacheTtlMs: Number(process.env.CACHE_TTL_HOURS || 24 * 14) * 60 * 60 * 1000,
   maxTranscriptChars: Number(process.env.MAX_TRANSCRIPT_CHARS || 20000),
-  maxClaimsPerVideo: Number(process.env.MAX_CLAIMS_PER_VIDEO || 8),
+  maxClaimsPerVideo: Number(process.env.MAX_CLAIMS_PER_VIDEO || 6),
 
   dbPath: process.env.DB_PATH || fileURLToPath(new URL('../data/db.json', import.meta.url)),
 };
