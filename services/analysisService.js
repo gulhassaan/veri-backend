@@ -264,7 +264,7 @@ export function ratingLabel(score) {
 function normalizeClaim(c) {
   return {
     claim: String(c.claim || '').slice(0, 500),
-    timestampSeconds: Number.isFinite(Number(c.timestampSeconds)) ? Math.max(0, Math.round(Number(c.timestampSeconds))) : null,
+    timestampSeconds: c.timestampSeconds !== null && c.timestampSeconds !== undefined && Number.isFinite(Number(c.timestampSeconds)) && Number(c.timestampSeconds) > 0 ? Math.round(Number(c.timestampSeconds)) : null,
     domain: String(c.domain || 'general').slice(0, 60),
     verdict: VALID_VERDICTS.has(c.verdict) ? c.verdict : 'Unverifiable',
     evidenceStrength: clampInt(c.evidenceStrength, 0, 100, 0),
