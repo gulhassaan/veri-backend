@@ -10,6 +10,7 @@ export async function tavilySearch(query, { apiKey, maxResults = 4 }) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
+      signal: AbortSignal.timeout(15000),
       body: JSON.stringify({
         query,
         search_depth: 'basic',
@@ -26,7 +27,7 @@ export async function tavilySearch(query, { apiKey, maxResults = 4 }) {
     return (data.results || []).map((r) => ({
       title: r.title || 'Untitled',
       url: r.url,
-      content: (r.content || '').slice(0, 1200),
+      content: (r.content || '').slice(0, 600),
     }));
   } catch (err) {
     console.error(`[tavily] search error for query "${query}": ${err.message}`);
