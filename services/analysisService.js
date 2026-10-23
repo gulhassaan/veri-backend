@@ -155,16 +155,22 @@ function parseJsonLoosely(text) {
 
 // Free-tier quota is tracked per model, so if one is exhausted (429) or not
 // available to this key (404) we move on to the next.
-const MODEL_CHAIN = [...new Set([config.model, 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-lite-latest'])];
+// Fast lite models first (this is structured extraction, speed matters more than depth).
+const MODEL_CHAIN = [...new Set(['gemini-flash-lite-latest', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', config.model])];
 
-async function callGemini(prompt, userContent, attempt = 1, useThinkingOff = true, modelIdx = 0) {
+// Remember the last model that worked so later calls skip ones that are slow or out of quota.
+let preferredModelIdx = 0;
+
+async function callGemini(prompt, userContent, attempt = 1, useThinkingOff = true, modelIdx = preferredModelIdx) {
   if (!config.geminiApiKey) {
     throw new Error('Server is not configured with a GEMINI_API_KEY.');
   }
 
-  const response = await fetch(`${API_URL_BASE}/${MODEL_CHAIN[modelIdx]}:generateContent`, {
+  let response;
+  try {
+  response = await fetch(`${API_URL_BASE}/${MODEL_CHAIN[modelIdx]}:generateContent`, {
     method: 'POST',
-    signal: AbortSignal.timeout(60000),
+    signal: AbortSignal.timeout(40000),
     headers: {
       'Content-Type': 'application/json',
       'x-goog-api-key': config.geminiApiKey,
@@ -179,6 +185,16 @@ async function callGemini(prompt, userContent, attempt = 1, useThinkingOff = tru
       },
     }),
   });
+  } catch (err) {
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      if (modelIdx < MODEL_CHAIN.length - 1) {
+        console.warn(`[gemini] ${MODEL_CHAIN[modelIdx]} timed out, trying ${MODEL_CHAIN[modelIdx + 1]}...`);
+        return callGemini(prompt, userContent, 1, true, modelIdx + 1);
+      }
+      throw new Error('The analysis model took too long to respond. Please try again.');
+    }
+    throw err;
+  }
 
   if (!response.ok) {
     let detail = '';
@@ -224,6 +240,7 @@ async function callGemini(prompt, userContent, attempt = 1, useThinkingOff = tru
   const rawText = textParts.join('\n').trim();
   if (!rawText) throw new Error('Analysis provider returned no result text.');
 
+  preferredModelIdx = modelIdx;
   const parsed = parseJsonLoosely(stripCodeFences(rawText));
   if (!parsed) throw new Error('Could not parse the analysis result.');
   return parsed;
