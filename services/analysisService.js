@@ -14,7 +14,9 @@ const VALID_VERDICTS = new Set([
 
 const EXTRACTION_PROMPT = `You are VERI, a neutral video-claim extraction assistant. You are given a YouTube video's title, channel, description, and (when available) its transcript with timestamps.
 
-Identify the video's distinct, important, checkable factual claims (not opinions, jokes, or pure subjective statements). Pick at most ${config.maxClaimsPerVideo} of the most significant/central claims - fewer if the video doesn't make that many. Do not invent claims that weren't actually stated.
+Identify the video's distinct, important, checkable factual claims (not opinions, jokes, or pure subjective statements). Pick at most ${config.maxClaimsPerVideo} of the most significant/central claims. Do not invent claims that weren't actually stated.
+
+IMPORTANT: educational, explanatory, tutorial, revision, review and news videos DO make checkable claims even when they sound general. Definitions, explanations of how something works, stated facts, figures, dates, named studies, and "X causes Y" or "X is Y" teaching points all count as claims. For such videos, extract the 3-6 most central teaching points as claims. Only return an empty array for content that is purely personal opinion, entertainment, or music with no factual statements at all.
 
 For each claim, give:
 - The claim as stated or closely paraphrased.
@@ -22,7 +24,7 @@ For each claim, give:
 - Its domain (e.g. health, statistical, historical, product, scientific, general).
 - 1-2 specific, well-formed web search queries that would help find authoritative evidence for or against this exact claim (not generic topic queries - make them specific enough to find real evidence, e.g. include the specific number/entity/study subject from the claim itself).
 
-If there is no transcript and the description is too thin to extract meaningful claims, return an empty claims array rather than guessing.
+If there is no transcript, derive the claims from what the title and description clearly state about the topic; return an empty claims array only if they state nothing factual at all.
 
 Respond with ONLY a single JSON object (no markdown fences, no prose before or after):
 {
@@ -300,7 +302,18 @@ export async function runAnalysis(videoData) {
   const videoHeader = buildVideoHeader(videoData);
 
   const extraction = await callGemini(EXTRACTION_PROMPT, videoHeader);
-  const rawClaims = Array.isArray(extraction.claims) ? extraction.claims.slice(0, config.maxClaimsPerVideo) : [];
+  let rawClaims = Array.isArray(extraction.claims) ? extraction.claims.slice(0, config.maxClaimsPerVideo) : [];
+
+  // Fallback so general-content videos still get a reference-based score:
+  // check the video's overall subject as one claim against trusted sources.
+  if (rawClaims.length === 0 && videoData.title) {
+    rawClaims = [{
+      claim: `The video's central subject, "${videoData.title}", is presented accurately.`,
+      timestampSeconds: null,
+      domain: 'general',
+      searchQueries: [videoData.title, `${videoData.title} explained overview`],
+    }];
+  }
 
   if (rawClaims.length === 0) {
     return normalizeResult({
