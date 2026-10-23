@@ -153,12 +153,16 @@ function parseJsonLoosely(text) {
   }
 }
 
-async function callGemini(prompt, userContent, attempt = 1, useThinkingOff = true) {
+// Free-tier quota is tracked per model, so if one is exhausted (429) or not
+// available to this key (404) we move on to the next.
+const MODEL_CHAIN = [...new Set([config.model, 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-lite-latest'])];
+
+async function callGemini(prompt, userContent, attempt = 1, useThinkingOff = true, modelIdx = 0) {
   if (!config.geminiApiKey) {
     throw new Error('Server is not configured with a GEMINI_API_KEY.');
   }
 
-  const response = await fetch(`${API_URL_BASE}/${config.model}:generateContent`, {
+  const response = await fetch(`${API_URL_BASE}/${MODEL_CHAIN[modelIdx]}:generateContent`, {
     method: 'POST',
     signal: AbortSignal.timeout(60000),
     headers: {
@@ -185,13 +189,17 @@ async function callGemini(prompt, userContent, attempt = 1, useThinkingOff = tru
       // ignore
     }
     if (response.status === 400 && useThinkingOff) {
-      return callGemini(prompt, userContent, attempt, false);
+      return callGemini(prompt, userContent, attempt, false, modelIdx);
     }
     if (response.status === 503 && attempt < 3) {
       const delayMs = attempt * 4000;
       console.warn(`[gemini] 503 (overloaded), retrying in ${delayMs}ms (attempt ${attempt + 1}/3)...`);
       await new Promise((resolve) => setTimeout(resolve, delayMs));
-      return callGemini(prompt, userContent, attempt + 1, useThinkingOff);
+      return callGemini(prompt, userContent, attempt + 1, useThinkingOff, modelIdx);
+    }
+    if ((response.status === 429 || response.status === 404) && modelIdx < MODEL_CHAIN.length - 1) {
+      console.warn(`[gemini] ${MODEL_CHAIN[modelIdx]} returned ${response.status}, trying ${MODEL_CHAIN[modelIdx + 1]}...`);
+      return callGemini(prompt, userContent, 1, true, modelIdx + 1);
     }
     if (response.status === 429) {
       throw new Error(`Rate limited by the Gemini API free tier (429). ${detail || 'Wait a moment and try again.'}`);
