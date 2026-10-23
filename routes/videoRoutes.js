@@ -76,7 +76,7 @@ async function runAnalysisJob(videoId, clientData = null) {
     } catch (err) {
       await upsertAnalysis(videoId, {
         status: 'error',
-        errorMessage: 'Analysis failed. Please try again.',
+        errorMessage: `Analysis failed: ${String(err.message || 'unknown error').slice(0, 220)}`,
         analyzedAt: new Date().toISOString(),
         videoMeta: { title: videoData.title, channel: videoData.channel, url: videoData.url },
       });
