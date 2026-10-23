@@ -116,7 +116,12 @@ router.post('/:videoId/analyze', requireValidVideoId, asyncHandler(async (req, r
   const videoId = req.params.videoId;
   const existing = await getAnalysis(videoId);
 
-  if (existing?.status === 'processing') {
+  // A 'processing' record with no live job behind it (server restarted or the
+  // job crashed) would otherwise block this video forever - treat it as stale.
+  const processingIsLive = existing?.status === 'processing'
+    && inFlight.has(videoId)
+    && Date.now() - new Date(existing.requestedAt || 0).getTime() < 4 * 60 * 1000;
+  if (processingIsLive) {
     return res.status(202).json(publicRecord(existing));
   }
   if (existing?.status === 'completed' && !(await isStale(existing))) {
