@@ -22,14 +22,34 @@ function publicRecord(record) {
   };
 }
 
-async function runAnalysisJob(videoId) {
+function sanitizeClientVideoData(videoId, raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const title = str(raw.title, 300);
+  if (!title) return null;
+  const transcript = str(raw.transcript, config.maxTranscriptChars) || null;
+  return {
+    videoId,
+    url: `https://www.youtube.com/watch?v=${videoId}`,
+    title,
+    channel: str(raw.channel, 200) || null,
+    description: str(raw.description, 4000),
+    lengthSeconds: Number.isFinite(raw.lengthSeconds) ? raw.lengthSeconds : null,
+    hasTranscript: !!transcript,
+    transcript,
+    transcriptLanguage: str(raw.transcriptLanguage, 20) || null,
+    transcriptSegments: [],
+  };
+}
+
+async function runAnalysisJob(videoId, clientData = null) {
   if (inFlight.has(videoId)) return;
   inFlight.add(videoId);
 
   try {
     let videoData;
     try {
-      videoData = await fetchVideoData(videoId, { maxTranscriptChars: config.maxTranscriptChars });
+      videoData = clientData || await fetchVideoData(videoId, { maxTranscriptChars: config.maxTranscriptChars });
     } catch (err) {
       console.error(`[youtube] fetch failed for ${videoId}:`, err.message);
       await upsertAnalysis(videoId, {
@@ -109,7 +129,8 @@ router.post('/:videoId/analyze', requireValidVideoId, asyncHandler(async (req, r
     errorMessage: null,
   });
 
-  runAnalysisJob(videoId).catch((err) => console.error('[analysis] unhandled job error:', err));
+  const clientData = sanitizeClientVideoData(videoId, req.body?.videoData);
+  runAnalysisJob(videoId, clientData).catch((err) => console.error('[analysis] unhandled job error:', err));
 
   res.status(202).json(publicRecord(record));
 }));
