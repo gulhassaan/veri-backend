@@ -53,12 +53,18 @@ Verdict - EXACTLY one of these six values:
 - "Unverifiable": not objectively checkable by nature.
 
 Also give per claim:
-- evidenceStrength (0-100): how strong is the evidence itself (independent of which way it points) - consider source type and how directly it addresses the exact claim.
-- sourceQuality (0-100): how authoritative/independent/relevant are the sources actually provided.
+- evidenceStrength (0-100): how strong is the evidence itself (independent of which way it points). Be strict and use the full range:
+    90-100 ONLY when a primary, official or peer-reviewed source directly and explicitly confirms the exact claim;
+    70-89 when reputable sources clearly support it but not as a primary source or not word for word;
+    50-69 for revision guides, tutorials, blogs, forums or indirect/partial support;
+    below 50 when evidence is thin, off-topic, conflicting, or only restates the claim.
+  Do NOT give 100 casually. Most claims should land between 55 and 90.
+- sourceQuality (0-100): authority, independence and relevance of the sources actually provided. Official/academic sources 80-95, reputable news 65-80, general websites or study guides 45-65, unknown or commercial pages below 45.
 - A short (1-3 sentence) neutral explanation.
 - sources: for each source you actually used from what was provided, give title, url (must be one of the provided URLs, never invented), publisher (if determinable), credibility tier ("official/government", "academic/research", "reputable secondary reporting", or "low credibility / unverified"), and a 1-sentence paraphrase of what it shows (never a verbatim quote longer than a few words).
 
 Then, reasoned holistically across all claims (not a simple average, weight by how central each claim is to the video's main point):
+Be calibrated, not generous: an ordinary, well-supported video should score around 65-80 overall; scores above 90 are rare and need strong primary sources for every key claim.
 - dimensions.accuracy (0-100): are the important claims supported by the evidence found?
 - dimensions.evidence (0-100): how strong is the evidence base overall?
 - dimensions.sources (0-100): how authoritative/independent/relevant were the sources used overall?
@@ -246,6 +252,50 @@ async function callGemini(prompt, userContent, attempt = 1, useThinkingOff = tru
   return parsed;
 }
 
+async function callFallbackProvider(prompt, userContent) {
+  const res = await fetch(`${config.fallbackBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(45000),
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.fallbackApiKey}` },
+    body: JSON.stringify({
+      model: config.fallbackModel,
+      temperature: 0.2,
+      max_tokens: 4096,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: userContent },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.error?.message || ''; } catch (e) { /* ignore */ }
+    throw new Error(`Backup provider error (${res.status}). ${detail}`.trim());
+  }
+  const data = await res.json();
+  const text = data.choices?.[0]?.message?.content || '';
+  const parsed = parseJsonLoosely(stripCodeFences(text));
+  if (!parsed) throw new Error('Could not parse the backup provider result.');
+  return parsed;
+}
+
+// Gemini first; if it is exhausted, slow or down, use the backup provider (if configured).
+let geminiCooldownUntil = 0;
+async function callModel(prompt, userContent) {
+  if (config.fallbackApiKey && Date.now() < geminiCooldownUntil) {
+    return callFallbackProvider(prompt, userContent);
+  }
+  try {
+    return await callGemini(prompt, userContent);
+  } catch (err) {
+    if (!config.fallbackApiKey) throw err;
+    geminiCooldownUntil = Date.now() + 2 * 60 * 1000; // skip Gemini for 2 min after it fails
+    console.warn(`[analysis] Gemini failed (${err.message}). Switching to backup provider ${config.fallbackModel}.`);
+    return callFallbackProvider(prompt, userContent);
+  }
+}
+
 export function computeOverallScore(dimensions, weights = config.scoringWeights) {
   const a = clampInt(dimensions.accuracy, 0, 100, 0);
   const e = clampInt(dimensions.evidence, 0, 100, 0);
@@ -259,6 +309,19 @@ export function ratingLabel(score) {
   if (score >= 75) return 'High';
   if (score >= 45) return 'Moderate';
   return 'Low';
+}
+
+const STRONG_TIERS = new Set(['official/government', 'academic/research']);
+
+function calibrateClaim(claim) {
+  const tiers = claim.sources.map((x) => x.credibility);
+  let cap = 100;
+  if (claim.sources.length === 0) cap = 40;
+  else if (!tiers.some((t) => STRONG_TIERS.has(t))) cap = tiers.some((t) => t === 'reputable secondary reporting') ? 82 : 55;
+  else if (claim.sources.length === 1) cap = 92;
+  claim.evidenceStrength = Math.min(claim.evidenceStrength, cap);
+  claim.sourceQuality = Math.min(claim.sourceQuality, cap);
+  return claim;
 }
 
 function normalizeClaim(c) {
@@ -283,7 +346,7 @@ function normalizeClaim(c) {
 }
 
 function normalizeResult(parsed) {
-  const claims = Array.isArray(parsed.claims) ? parsed.claims.map(normalizeClaim) : [];
+  const claims = Array.isArray(parsed.claims) ? parsed.claims.map((c) => calibrateClaim(normalizeClaim(c))) : [];
 
   if (claims.length === 0) {
     return {
@@ -306,7 +369,13 @@ function normalizeResult(parsed) {
     sources: clampInt(parsed.dimensions?.sources, 0, 100, 0),
     context: clampInt(parsed.dimensions?.context, 0, 100, 0),
   };
-  const overallScore = computeOverallScore(dimensions);
+  // Overall dimensions cannot be rosier than the per-claim evidence they rest on.
+  const avg = (key) => Math.round(claims.reduce((sum, c) => sum + c[key], 0) / claims.length);
+  dimensions.accuracy = Math.min(dimensions.accuracy, 96);
+  dimensions.context = Math.min(dimensions.context, 96);
+  dimensions.evidence = Math.min(dimensions.evidence, avg('evidenceStrength') + 8);
+  dimensions.sources = Math.min(dimensions.sources, avg('sourceQuality') + 8);
+  const overallScore = Math.min(computeOverallScore(dimensions), 95);
 
   const scientificSupportRaw = parsed.scientificSupport;
   const scientificSupport =
@@ -336,7 +405,7 @@ export async function runAnalysis(videoData) {
   const lap = (label) => console.log(`[analysis] ${videoData.videoId} ${label} (+${((Date.now() - t0) / 1000).toFixed(1)}s)`);
   const videoHeader = buildVideoHeader(videoData);
 
-  const extraction = await callGemini(EXTRACTION_PROMPT, videoHeader);
+  const extraction = await callModel(EXTRACTION_PROMPT, videoHeader);
   lap('claims extracted');
   let rawClaims = Array.isArray(extraction.claims) ? extraction.claims.slice(0, config.maxClaimsPerVideo) : [];
 
@@ -377,7 +446,7 @@ export async function runAnalysis(videoData) {
   lap('evidence retrieved');
   const evidenceBlock = buildEvidenceBlock(claimsWithEvidence);
   const verificationInput = `${videoHeader}\n\n---\n\nClaims and retrieved evidence:\n\n${evidenceBlock}`;
-  const verification = await callGemini(VERIFICATION_PROMPT, verificationInput);
+  const verification = await callModel(VERIFICATION_PROMPT, verificationInput);
   lap('verification done');
 
   return normalizeResult(verification);
