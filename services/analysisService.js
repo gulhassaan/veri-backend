@@ -160,6 +160,7 @@ async function callGemini(prompt, userContent, attempt = 1, useThinkingOff = tru
 
   const response = await fetch(`${API_URL_BASE}/${config.model}:generateContent`, {
     method: 'POST',
+    signal: AbortSignal.timeout(60000),
     headers: {
       'Content-Type': 'application/json',
       'x-goog-api-key': config.geminiApiKey,
@@ -168,7 +169,7 @@ async function callGemini(prompt, userContent, attempt = 1, useThinkingOff = tru
       system_instruction: { parts: [{ text: prompt }] },
       contents: [{ role: 'user', parts: [{ text: userContent }] }],
       generationConfig: {
-        maxOutputTokens: 7000,
+        maxOutputTokens: 8192,
         // Skip the slow "thinking" phase - this is structured extraction, not reasoning-heavy.
         ...(useThinkingOff ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
       },
@@ -306,9 +307,12 @@ function normalizeResult(parsed) {
 }
 
 export async function runAnalysis(videoData) {
+  const t0 = Date.now();
+  const lap = (label) => console.log(`[analysis] ${videoData.videoId} ${label} (+${((Date.now() - t0) / 1000).toFixed(1)}s)`);
   const videoHeader = buildVideoHeader(videoData);
 
   const extraction = await callGemini(EXTRACTION_PROMPT, videoHeader);
+  lap('claims extracted');
   let rawClaims = Array.isArray(extraction.claims) ? extraction.claims.slice(0, config.maxClaimsPerVideo) : [];
 
   // Fallback so general-content videos still get a reference-based score:
@@ -345,9 +349,11 @@ export async function runAnalysis(videoData) {
     })
   );
 
+  lap('evidence retrieved');
   const evidenceBlock = buildEvidenceBlock(claimsWithEvidence);
   const verificationInput = `${videoHeader}\n\n---\n\nClaims and retrieved evidence:\n\n${evidenceBlock}`;
   const verification = await callGemini(VERIFICATION_PROMPT, verificationInput);
+  lap('verification done');
 
   return normalizeResult(verification);
 }
