@@ -153,7 +153,7 @@ function parseJsonLoosely(text) {
   }
 }
 
-async function callGemini(prompt, userContent, attempt = 1) {
+async function callGemini(prompt, userContent, attempt = 1, useThinkingOff = true) {
   if (!config.geminiApiKey) {
     throw new Error('Server is not configured with a GEMINI_API_KEY.');
   }
@@ -167,7 +167,11 @@ async function callGemini(prompt, userContent, attempt = 1) {
     body: JSON.stringify({
       system_instruction: { parts: [{ text: prompt }] },
       contents: [{ role: 'user', parts: [{ text: userContent }] }],
-      generationConfig: { maxOutputTokens: 7000 },
+      generationConfig: {
+        maxOutputTokens: 7000,
+        // Skip the slow "thinking" phase - this is structured extraction, not reasoning-heavy.
+        ...(useThinkingOff ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+      },
     }),
   });
 
@@ -179,11 +183,14 @@ async function callGemini(prompt, userContent, attempt = 1) {
     } catch (e) {
       // ignore
     }
+    if (response.status === 400 && useThinkingOff) {
+      return callGemini(prompt, userContent, attempt, false);
+    }
     if (response.status === 503 && attempt < 3) {
       const delayMs = attempt * 4000;
       console.warn(`[gemini] 503 (overloaded), retrying in ${delayMs}ms (attempt ${attempt + 1}/3)...`);
       await new Promise((resolve) => setTimeout(resolve, delayMs));
-      return callGemini(prompt, userContent, attempt + 1);
+      return callGemini(prompt, userContent, attempt + 1, useThinkingOff);
     }
     if (response.status === 429) {
       throw new Error(`Rate limited by the Gemini API free tier (429). ${detail || 'Wait a moment and try again.'}`);
