@@ -19,6 +19,11 @@ export const config = {
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   model: process.env.ANALYSIS_MODEL || 'gemini-flash-latest',
 
+  // Optional free backup provider (any OpenAI-compatible API, e.g. Groq or OpenRouter),
+  // used automatically when every Gemini model is rate-limited, slow or unavailable.
+  fallbackApiKey: process.env.FALLBACK_API_KEY || '',
+  fallbackBaseUrl: process.env.FALLBACK_BASE_URL || 'https://api.groq.com/openai/v1',
+  fallbackModel: process.env.FALLBACK_MODEL || 'llama-3.3-70b-versatile',
   tavilyApiKey: process.env.TAVILY_API_KEY || '',
   maxSearchQueriesPerClaim: Number(process.env.MAX_SEARCH_QUERIES_PER_CLAIM || 1),
   maxResultsPerQuery: Number(process.env.MAX_RESULTS_PER_QUERY || 4),
