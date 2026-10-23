@@ -16,7 +16,7 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(helmet());
-app.use(express.json({ limit: '100kb' }));
+app.use(express.json({ limit: '1mb' }));
 if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
 const allowExtensionOrigins = config.clientOrigins.includes('chrome-extension://*');
